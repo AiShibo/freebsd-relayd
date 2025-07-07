@@ -124,6 +124,55 @@ usage(void)
 	exit(1);
 }
 
+size_t
+get_payload(uint16_t size, char *buf)
+{
+	ssize_t bytes_read;
+	size_t total_read = 0;
+	
+	while (total_read < size) {
+		bytes_read = read(STDIN_FILENO, buf + total_read, size - total_read);
+		if (bytes_read <= 0) {
+			break;
+		}
+		total_read += bytes_read;
+	}
+	
+	return total_read;
+}
+
+int
+get_metadata(uint8_t* compartment, uint8_t* instance, uint8_t* type, uint16_t* size) 
+{
+	ssize_t bytes_read;
+	
+	/* Read compartment (1 byte) */
+	bytes_read = read(STDIN_FILENO, compartment, sizeof(uint8_t));
+	if (bytes_read != sizeof(uint8_t)) {
+		return 1;
+	}
+	
+	/* Read instance (1 byte) */
+	bytes_read = read(STDIN_FILENO, instance, sizeof(uint8_t));
+	if (bytes_read != sizeof(uint8_t)) {
+		return 1;
+	}
+	
+	/* Read type (1 byte) */
+	bytes_read = read(STDIN_FILENO, type, sizeof(uint8_t));
+	if (bytes_read != sizeof(uint8_t)) {
+		return 1;
+	}
+	
+	/* Read size (2 bytes) */
+	bytes_read = read(STDIN_FILENO, size, sizeof(uint16_t));
+	if (bytes_read != sizeof(uint16_t)) {
+		return 1;
+	}
+	
+	return 0;
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -261,6 +310,7 @@ main(int argc, char *argv[])
 #endif
 	event_init();
 
+	/*
 	signal_set(&ps->ps_evsigint, SIGINT, parent_sig_handler, ps);
 	signal_set(&ps->ps_evsigterm, SIGTERM, parent_sig_handler, ps);
 	signal_set(&ps->ps_evsighup, SIGHUP, parent_sig_handler, ps);
@@ -272,6 +322,7 @@ main(int argc, char *argv[])
 	signal_add(&ps->ps_evsighup, NULL);
 	signal_add(&ps->ps_evsigpipe, NULL);
 	signal_add(&ps->ps_evsigusr1, NULL);
+	*/
 
 	proc_connect(ps);
 
@@ -296,99 +347,80 @@ main(int argc, char *argv[])
 	init_routes(env);
 #endif
 
+	struct imsgbuf pfe_ibuf;
+	int pfe_fd = ps->ps_pipes[PROC_PFE][0].pp_pipes[PROC_PARENT][0];
+	imsg_init(&pfe_ibuf, pfe_fd);
 
+	struct imsgbuf hce_ibuf;
+	int hce_fd = ps->ps_pipes[PROC_HCE][0].pp_pipes[PROC_PARENT][0];
+	imsg_init(&hce_ibuf, hce_fd);
 
-	int myfds[2];
-	if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, PF_UNSPEC, myfds) == -1)
-		fatal("%s: socketpair", __func__);
+	struct imsgbuf relay_ibuf;
+	int relay_fd = ps->ps_pipes[PROC_RELAY][0].pp_pipes[PROC_PARENT][0];
+	imsg_init(&relay_ibuf, relay_fd);
 
-	struct imsgbuf stdin_ibuf;
-	imsg_init(&stdin_ibuf, myfds[0]);
+	struct imsgbuf ca_ibuf;
+	int ca_fd = ps->ps_pipes[PROC_CA][0].pp_pipes[PROC_PARENT][0];
+	imsg_init(&ca_ibuf, ca_fd);
 
-	char stdin_buffer[4000];
-	size_t bytes_read;
-	ssize_t total_bytes = 0;
-
-	while ((bytes_read = read(STDIN_FILENO, stdin_buffer + total_bytes, sizeof(stdin_buffer) - total_bytes)) > 0) {
-		total_bytes += bytes_read;
-		if (total_bytes >= sizeof(stdin_buffer))
-			break;
-	}
-
-	int pfe_fd = ps->ps_pipes[PROC_PARENT][0].pp_pipes[PROC_PFE][0];
-	printf("pfe's port is %d\n", pfe_fd);
-	if (dup2(myfds[1], pfe_fd) == -1)
-		fatal("dup2");
-
-
-	/*
-	if (total_bytes >= 4) {
-		printf("send!!!\n");
-		uint32_t first_four_bytes;
-		memcpy(&first_four_bytes, stdin_buffer, 4);
-		printf("bytes are %d\n", first_four_bytes);
-		imsg_compose(&stdin_ibuf, first_four_bytes, 0, 0, -1, NULL, 0);
-		imsg_flush(&stdin_ibuf);
-	}
-	*/
-
-	/*
-	 * claude: Fuzzing harness implementation
-	 * Generate imsg traffic based on stdin data using the specified rules
-	 */
-	size_t buffer_offset = 0;
 	
-	for (int msg_count = 0; msg_count < 5 && buffer_offset < total_bytes; msg_count++) {
-		if (buffer_offset >= total_bytes) break;
+	while(1) {
+		uint8_t compartment; // value is 1, 2, 3, 4
+		uint8_t instance; // reserved, dont use it
+		uint8_t type; // max value 63, smallest value 0, so [0-63]
+		uint16_t size;
 		
-		/* Get message type from first byte, map to valid types */
-		uint8_t type_selector = stdin_buffer[buffer_offset++];
-		uint32_t msg_type;
-		
-		/* Map to one of the 4 valid types: 26, 25, 23, 54 */
-		switch (type_selector % 4) {
-			case 0: msg_type = 26; break;
-			case 1: msg_type = 25; break;
-			case 2: msg_type = 23; break;
-			case 3: msg_type = 55; break;
+		char payload[65535];
+		uint16_t payload_size;
+
+		/* Populate the four fields using get_metadata function */
+		if (get_metadata(&compartment, &instance, &type, &size) != 0) {
+			break;
 		}
 		
-		if (msg_type == 26) {
-			/* Type 26: use next 4 bytes as payload */
-			if (buffer_offset + 4 <= total_bytes) {
-				uint32_t payload;
-				memcpy(&payload, stdin_buffer + buffer_offset, 4);
-				buffer_offset += 4;
-				
-				printf("Sending imsg type %u with 4-byte payload: %u\n", msg_type, payload);
-				imsg_compose(&stdin_ibuf, msg_type, 0, 0, -1, &payload, sizeof(payload));
-			}
-		} else {
-			/* Types 25, 23, 55: use second byte for length, then data */
-			if (buffer_offset < total_bytes) {
-				uint8_t payload_len = stdin_buffer[buffer_offset++];
-				if (payload_len > 127) {
-					printf("========= how come bigger than 127?\n");
-					payload_len = 127; /* Limit to max length */
-				}
-				
-				/* Ensure we don't read beyond buffer */
-				if (buffer_offset + payload_len > total_bytes) {
-					payload_len = total_bytes - buffer_offset;
-				}
-				
-				if (payload_len > 0) {
-					printf("Sending imsg type %u with %u-byte payload\n", msg_type, payload_len);
-					imsg_compose(&stdin_ibuf, msg_type, 0, 0, -1, 
-						    stdin_buffer + buffer_offset, payload_len);
-					buffer_offset += payload_len;
-				}
-			}
+		/* Ensure values are within valid ranges */
+		compartment = (compartment % 4) + 1;  // values 1, 2, 3, 4
+		type = type % 64;  // values 0-63
+		if (size > 65535) {
+			size = 65535;
 		}
 		
-		/* Flush the message */
-		imsg_flush(&stdin_ibuf);
+		/* Populate payload up to size bytes */
+		payload_size = get_payload(size, payload);
+		
+		/* Send message to appropriate compartment */
+		struct imsgbuf *target_ibuf = NULL;
+		switch (compartment) {
+			case 1:
+				target_ibuf = &hce_ibuf;
+				break;
+			case 2:
+				target_ibuf = &relay_ibuf;
+				break;
+			case 3:
+				target_ibuf = &pfe_ibuf;
+				break;
+			case 4:
+				target_ibuf = &ca_ibuf;
+				break;
+		}
+		
+		if (target_ibuf != NULL) {
+			imsg_compose(target_ibuf, type, 0, 0, -1, payload, payload_size);
+			printf("compose! payload size is %lu, and compartment ID is %d\n\n", payload_size, compartment);
+			imsg_flush(target_ibuf);
+		}
 	}
+
+	// Send IMSG_END_OF_MSGS to pfe compartment to signal end of input
+	imsg_compose(&pfe_ibuf, IMSG_END_OF_MSGS, 0, 0, -1, NULL, 0);
+	imsg_flush(&pfe_ibuf);
+	imsg_compose(&pfe_ibuf, IMSG_END_OF_MSGS, 0, 0, -1, NULL, 0);
+	imsg_compose(&pfe_ibuf, IMSG_END_OF_MSGS, 0, 0, -1, NULL, 0);
+	imsg_flush(&pfe_ibuf);
+	imsg_flush(&pfe_ibuf);
+	
+	printf("before event_dispatch!\n");
 
 
 	event_dispatch();
@@ -586,6 +618,10 @@ parent_dispatch_pfe(int fd, struct privsep_proc *p, struct imsg *imsg)
 		agentx_setsock(env, p->p_id);
 		break;
 #endif
+	case IMSG_END_OF_MSGS:
+		printf("ctl END_OF_MSGS!!! Exiting program.\n");
+		exit(0);
+		break;
 	default:
 		printf("none!!!\n");
 		printf("type is %d\n!!!\n", imsg->hdr.type);
@@ -602,17 +638,23 @@ parent_dispatch_hce(int fd, struct privsep_proc *p, struct imsg *imsg)
 	struct relayd		*env = ps->ps_env;
 	struct ctl_script	 scr;
 
+	printf("hce???");
+	printf("type is %d\n", imsg->hdr.type);
+
 	switch (imsg->hdr.type) {
 	case IMSG_SCRIPT:
+		printf("hce SCRIPT!!!");
 		IMSG_SIZE_CHECK(imsg, &scr);
 		bcopy(imsg->data, &scr, sizeof(scr));
 		scr.retval = script_exec(env, &scr);
 		proc_compose(ps, PROC_HCE, IMSG_SCRIPT, &scr, sizeof(scr));
 		break;
 	case IMSG_CFG_DONE:
+		printf("hce CFG_DONE!!!");
 		parent_configure_done(env);
 		break;
 	default:
+		printf("hce none!!!");
 		return (-1);
 	}
 
@@ -627,8 +669,12 @@ parent_dispatch_relay(int fd, struct privsep_proc *p, struct imsg *imsg)
 	struct ctl_bindany	 bnd;
 	int			 s;
 
+	printf("relay???");
+	printf("type is %d\n", imsg->hdr.type);
+
 	switch (imsg->hdr.type) {
 	case IMSG_BINDANY:
+		printf("relay BINDANY!!!");
 		IMSG_SIZE_CHECK(imsg, &bnd);
 		bcopy(imsg->data, &bnd, sizeof(bnd));
 		if (bnd.bnd_proc > env->sc_conf.prefork_relay)
@@ -647,9 +693,11 @@ parent_dispatch_relay(int fd, struct privsep_proc *p, struct imsg *imsg)
 		    IMSG_BINDANY, -1, s, &bnd.bnd_id, sizeof(bnd.bnd_id));
 		break;
 	case IMSG_CFG_DONE:
+		printf("relay CFG_DONE!!!");
 		parent_configure_done(env);
 		break;
 	default:
+		printf("relay none!!!");
 		return (-1);
 	}
 
@@ -662,11 +710,16 @@ parent_dispatch_ca(int fd, struct privsep_proc *p, struct imsg *imsg)
 	struct privsep		*ps = p->p_ps;
 	struct relayd		*env = ps->ps_env;
 
+	printf("ca???");
+	printf("type is %d\n", imsg->hdr.type);
+
 	switch (imsg->hdr.type) {
 	case IMSG_CFG_DONE:
+		printf("ca CFG_DONE!!!");
 		parent_configure_done(env);
 		break;
 	default:
+		printf("ca none!!!");
 		return (-1);
 	}
 

@@ -115,13 +115,15 @@ proc_exec(struct privsep *ps, struct privsep_proc *procs, unsigned int nproc,
 			snprintf(num, sizeof(num), "%u", i);
 
 			fd = ps->ps_pipes[p->p_id][i].pp_pipes[PROC_PARENT][0];
-			ps->ps_pipes[p->p_id][i].pp_pipes[PROC_PARENT][0] = -1;
+			// ps->ps_pipes[p->p_id][i].pp_pipes[PROC_PARENT][0] = -1;
 
 			if (p->p_id == PROC_PFE)
 				continue;
 
 			// claude: make sure children exists if the parent exists
 
+
+#if 0
 			switch (fork()) {
 			case -1:
 				fatal("%s: fork", __func__);
@@ -150,9 +152,11 @@ proc_exec(struct privsep *ps, struct privsep_proc *procs, unsigned int nproc,
 				close(fd);
 				break;
 			}
+#endif
 		}
 	}
 	free(nargv);
+	printf("proc_exec returned!\n");
 }
 
 void
@@ -199,6 +203,10 @@ proc_init(struct privsep *ps, struct privsep_proc *procs, unsigned int nproc,
 	unsigned int		 proc;
 	unsigned int		 dst;
 	int			 fds[2];
+	////////////////////////////////////////
+	// char stdin_buffer[STDIN_BUFFER_SIZE];
+	// ssize_t bytes_read;
+	// ssize_t total_bytes = 0;
 
 	/* Don't initiate anything if we are not really going to run. */
 	if (ps->ps_noaction)
@@ -208,8 +216,18 @@ proc_init(struct privsep *ps, struct privsep_proc *procs, unsigned int nproc,
 		privsep_process = PROC_PARENT;
 		proc_setup(ps, procs, nproc);
 
+		/*
 		if (!debug && daemon(1, 0) == -1)
 			fatal("failed to daemonize");
+		*/
+
+		/*
+		while ((bytes_read = read(STDIN_FILENO, stdin_buffer + total_bytes, sizeof(stdin_buffer) - total_bytes)) > 0) {
+			total_bytes += bytes_read;
+			if (total_bytes >= sizeof(stdin_buffer))
+				break;
+		}
+		*/
 
 		/*
 		 * Create the children sockets so we can use them
@@ -229,54 +247,13 @@ proc_init(struct privsep *ps, struct privsep_proc *procs, unsigned int nproc,
 				    PF_UNSPEC, fds) == -1)
 					fatal("%s: socketpair", __func__);
 
-				/*
 				int myfds[2];
 				if (socketpair(AF_UNIX,
 				    SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
 				    PF_UNSPEC, myfds) == -1)
 					fatal("%s: socketpair", __func__);
 
-				struct imsgbuf stdin_ibuf;
-				imsg_init(&stdin_ibuf, myfds[0]);
-
-				char stdin_buffer[STDIN_BUFFER_SIZE];
-				ssize_t bytes_read;
-				ssize_t total_bytes = 0;
-				
-				while ((bytes_read = read(STDIN_FILENO, stdin_buffer + total_bytes, sizeof(stdin_buffer) - total_bytes)) > 0) {
-					total_bytes += bytes_read;
-					if (total_bytes >= sizeof(stdin_buffer))
-						break;
-				}
-				*/
-				
-				/*
-				if (total_bytes > 0) {
-					write(myfds[0], stdin_buffer, total_bytes);
-				}
-				*/
-
-				// if (total_bytes >= 4 && dst == PROC_PFE) {
-				/*
-				if (total_bytes >= 4) {
-					printf("send!!!\n");
-					uint32_t first_four_bytes;
-					memcpy(&first_four_bytes, stdin_buffer, 4);
-					printf("bytes are %d\n", first_four_bytes);
-					imsg_compose(&stdin_ibuf, 0, 0, 0, -1, NULL, 0);
-					imsg_flush(&stdin_ibuf);
-				}
-
-				pa->pp_pipes[dst][proc] = myfds[1];
-				*/
-
-				/*
-				if (dst == PROC_PFE)
-					pa->pp_pipes[dst][proc] = myfds[1];
-				else
-					pa->pp_pipes[dst][proc] = fds[0];
-				*/
-
+				printf("dst, proc pair: (%d, %d)\n", dst, proc);
 				pa->pp_pipes[dst][proc] = fds[0];
 				pb->pp_pipes[PROC_PARENT][0] = fds[1];
 			}
@@ -310,6 +287,7 @@ proc_accept(struct privsep *ps, int fd, enum privsep_procid dst,
 	struct privsep_pipes	*pp = ps->ps_pp;
 	struct imsgev		*iev;
 
+	printf("dest is %d\n", dst);
 	if (ps->ps_ievs[dst] == NULL) {
 #if DEBUG > 1
 		log_debug("%s: %s src %d %d to dst %d %d not connected",
@@ -723,6 +701,9 @@ proc_dispatch(int fd, short event, void *arg)
 		case IMSG_CTL_PROCFD:
 			IMSG_SIZE_CHECK(&imsg, &pf);
 			memcpy(&pf, imsg.data, sizeof(pf));
+			if (pf.pf_procid < 0 || pf.pf_procid > 5)
+				break;
+			printf("pf.pf_procid is %d\n", pf.pf_procid);
 			proc_accept(ps, imsg.fd, pf.pf_procid,
 			    pf.pf_instance);
 			break;

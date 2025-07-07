@@ -1,0 +1,6 @@
+# environment variables:
+AFL_CUSTOM_INFO_PROGRAM=./relayd
+AFL_CUSTOM_INFO_PROGRAM_ARGV=-d
+AFL_CUSTOM_INFO_OUT=findings/default
+# command line:
+'afl-fuzz' '-i' 'in' '-o' 'findings' '-g' '4000' '-m' 'none' '--' './relayd' '-d'

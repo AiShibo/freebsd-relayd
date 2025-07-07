@@ -1033,18 +1033,12 @@ enum imsg_type {
 	IMSG_HOST_STATUS,	/* notifies from hce to pfe */
 	IMSG_SYNC,
 	IMSG_NATLOOK,
-#ifndef __FreeBSD__
 	IMSG_DEMOTE,
-#endif
 	IMSG_STATISTICS,
 	IMSG_SCRIPT,
-#ifndef __FreeBSD__
 	IMSG_AGENTXSOCK,
-#endif
 	IMSG_BINDANY,
-#ifndef __FreeBSD__
 	IMSG_RTMSG,		/* from pfe to parent */
-#endif
 	IMSG_CFG_TABLE,		/* configuration from parent */
 	IMSG_CFG_HOST,
 	IMSG_CFG_RDR,
@@ -1063,6 +1057,7 @@ enum imsg_type {
 	IMSG_SESS_PUBLISH,	/* from relay to pfe */
 	IMSG_SESS_UNPUBLISH,
 	IMSG_TLSTICKET_REKEY,
+	IMSG_END_OF_MSGS,
 };
 
 enum privsep_procid {
