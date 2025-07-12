@@ -668,16 +668,15 @@ proc_dispatch(int fd, short event, void *arg)
 	}
 
 	for (;;) {
+		printf("proc id is %d\n", p->p_id);
 		if ((n = imsg_get(ibuf, &imsg)) == -1)
 			fatal("%s: imsg_get", __func__);
 		if (n == 0)
 			break;
 
-#if DEBUG > 1
-		log_debug("%s: %s %d got imsg %d peerid %d from %s %d",
+		printf("%s: %s %d got imsg %d peerid %d from %s %d",
 		    __func__, title, ps->ps_instance + 1,
 		    imsg.hdr.type, imsg.hdr.peerid, p->p_title, imsg.hdr.pid);
-#endif
 
 		/*
 		 * Check the message with the program callback

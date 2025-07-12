@@ -76,7 +76,9 @@ int		 bindany(struct ctl_bindany *);
 void		 parent_tls_ticket_rekey(int, short, void *);
 
 struct relayd			*relayd_env;
+static int			 end_of_msgs_count = 0;
 
+// claude: here you can find all compartments
 static struct privsep_proc procs[] = {
 	{ "pfe",	PROC_PFE, parent_dispatch_pfe, pfe },
 	{ "hce",	PROC_HCE, parent_dispatch_hce, hce },
@@ -377,13 +379,12 @@ main(int argc, char *argv[])
 		if (get_metadata(&compartment, &instance, &type, &size) != 0) {
 			break;
 		}
+
+		size = size > 16184? 16184 : size;
 		
 		/* Ensure values are within valid ranges */
 		compartment = (compartment % 4) + 1;  // values 1, 2, 3, 4
 		type = type % 64;  // values 0-63
-		if (size > 65535) {
-			size = 65535;
-		}
 		
 		/* Populate payload up to size bytes */
 		payload_size = get_payload(size, payload);
@@ -412,13 +413,18 @@ main(int argc, char *argv[])
 		}
 	}
 
-	// Send IMSG_END_OF_MSGS to pfe compartment to signal end of input
+	// Send IMSG_END_OF_MSGS to all compartments to signal end of input
 	imsg_compose(&pfe_ibuf, IMSG_END_OF_MSGS, 0, 0, -1, NULL, 0);
 	imsg_flush(&pfe_ibuf);
-	imsg_compose(&pfe_ibuf, IMSG_END_OF_MSGS, 0, 0, -1, NULL, 0);
-	imsg_compose(&pfe_ibuf, IMSG_END_OF_MSGS, 0, 0, -1, NULL, 0);
-	imsg_flush(&pfe_ibuf);
-	imsg_flush(&pfe_ibuf);
+	
+	imsg_compose(&hce_ibuf, IMSG_END_OF_MSGS, 0, 0, -1, NULL, 0);
+	imsg_flush(&hce_ibuf);
+	
+	imsg_compose(&relay_ibuf, IMSG_END_OF_MSGS, 0, 0, -1, NULL, 0);
+	imsg_flush(&relay_ibuf);
+	
+	imsg_compose(&ca_ibuf, IMSG_END_OF_MSGS, 0, 0, -1, NULL, 0);
+	imsg_flush(&ca_ibuf);
 	
 	printf("before event_dispatch!\n");
 
@@ -565,18 +571,8 @@ parent_dispatch_pfe(int fd, struct privsep_proc *p, struct imsg *imsg)
 #endif
 	u_int			 v;
 	char			*str = NULL;
-	static int counter = 0;
-	counter++;
-	if (counter == 5)
-		exit(0);
-	
 
 	printf("pfe???\n");
-	printf("sizeof reset is %lu\n", sizeof(v));
-	printf("reset value is %lu\n", IMSG_CTL_RESET);
-	printf("reload value is %lu\n", IMSG_CTL_RELOAD);
-	printf("shutdown value is %lu\n", IMSG_CTL_SHUTDOWN);
-	printf("done value is %lu\n", IMSG_CFG_DONE);
 
 	switch (imsg->hdr.type) {
 #ifndef __FreeBSD__
@@ -619,8 +615,13 @@ parent_dispatch_pfe(int fd, struct privsep_proc *p, struct imsg *imsg)
 		break;
 #endif
 	case IMSG_END_OF_MSGS:
-		printf("ctl END_OF_MSGS!!! Exiting program.\n");
-		exit(0);
+		printf("pfe END_OF_MSGS!!!");
+		end_of_msgs_count++;
+		printf(" Count: %d/4\n", end_of_msgs_count);
+		if (end_of_msgs_count == 4) {
+			printf("All compartments received END_OF_MSGS. Exiting program.\n");
+			exit(0);
+		}
 		break;
 	default:
 		printf("none!!!\n");
@@ -638,7 +639,7 @@ parent_dispatch_hce(int fd, struct privsep_proc *p, struct imsg *imsg)
 	struct relayd		*env = ps->ps_env;
 	struct ctl_script	 scr;
 
-	printf("hce???");
+	printf("hce???\n");
 	printf("type is %d\n", imsg->hdr.type);
 
 	switch (imsg->hdr.type) {
@@ -652,6 +653,15 @@ parent_dispatch_hce(int fd, struct privsep_proc *p, struct imsg *imsg)
 	case IMSG_CFG_DONE:
 		printf("hce CFG_DONE!!!");
 		parent_configure_done(env);
+		break;
+	case IMSG_END_OF_MSGS:
+		printf("hce END_OF_MSGS!!!");
+		end_of_msgs_count++;
+		printf(" Count: %d/4\n", end_of_msgs_count);
+		if (end_of_msgs_count == 4) {
+			printf("All compartments received END_OF_MSGS. Exiting program.\n");
+			exit(0);
+		}
 		break;
 	default:
 		printf("hce none!!!");
@@ -669,13 +679,13 @@ parent_dispatch_relay(int fd, struct privsep_proc *p, struct imsg *imsg)
 	struct ctl_bindany	 bnd;
 	int			 s;
 
-	printf("relay???");
+	printf("relay???\n");
 	printf("type is %d\n", imsg->hdr.type);
 
 	switch (imsg->hdr.type) {
 	case IMSG_BINDANY:
 		printf("relay BINDANY!!!");
-		IMSG_SIZE_CHECK(imsg, &bnd);
+		printf("imsg.hdr.len is %d\n", imsg->hdr.len);
 		bcopy(imsg->data, &bnd, sizeof(bnd));
 		if (bnd.bnd_proc > env->sc_conf.prefork_relay)
 			fatalx("%s: invalid relay proc", __func__);
@@ -696,6 +706,15 @@ parent_dispatch_relay(int fd, struct privsep_proc *p, struct imsg *imsg)
 		printf("relay CFG_DONE!!!");
 		parent_configure_done(env);
 		break;
+	case IMSG_END_OF_MSGS:
+		printf("relay END_OF_MSGS!!!");
+		end_of_msgs_count++;
+		printf(" Count: %d/4\n", end_of_msgs_count);
+		if (end_of_msgs_count == 4) {
+			printf("All compartments received END_OF_MSGS. Exiting program.\n");
+			exit(0);
+		}
+		break;
 	default:
 		printf("relay none!!!");
 		return (-1);
@@ -710,13 +729,22 @@ parent_dispatch_ca(int fd, struct privsep_proc *p, struct imsg *imsg)
 	struct privsep		*ps = p->p_ps;
 	struct relayd		*env = ps->ps_env;
 
-	printf("ca???");
+	printf("ca???\n");
 	printf("type is %d\n", imsg->hdr.type);
 
 	switch (imsg->hdr.type) {
 	case IMSG_CFG_DONE:
 		printf("ca CFG_DONE!!!");
 		parent_configure_done(env);
+		break;
+	case IMSG_END_OF_MSGS:
+		printf("ca END_OF_MSGS!!!");
+		end_of_msgs_count++;
+		printf(" Count: %d/4\n", end_of_msgs_count);
+		if (end_of_msgs_count == 4) {
+			printf("All compartments received END_OF_MSGS. Exiting program.\n");
+			exit(0);
+		}
 		break;
 	default:
 		printf("ca none!!!");
