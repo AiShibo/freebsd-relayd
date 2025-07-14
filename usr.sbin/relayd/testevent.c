@@ -85,7 +85,14 @@ void child_process(int sockfd) {
                        imsg.hdr.type, (unsigned int)(imsg.hdr.len - IMSG_HEADER_SIZE));
                 
                 payload = (struct test_payload *)imsg.data;
-                printf("Child: Received %d bytes of random data\n", PAYLOAD_SIZE);
+		// claude: do not print the fized value, get it from hdr.len
+                printf("Child: Received %u bytes of random data\n", (unsigned int)(imsg.hdr.len - IMSG_HEADER_SIZE));
+		// claude: print the last char of the received data, by hdr.len
+                if (imsg.hdr.len > IMSG_HEADER_SIZE) {
+                    unsigned int data_len = imsg.hdr.len - IMSG_HEADER_SIZE;
+                    printf("Child: Last char of received data: 0x%02x\n", 
+                           (unsigned char)payload->data[data_len - 1]);
+                }
             }
             imsg_free(&imsg);
         }

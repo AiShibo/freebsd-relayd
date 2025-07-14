@@ -700,9 +700,9 @@ proc_dispatch(int fd, short event, void *arg)
 		case IMSG_CTL_PROCFD:
 			IMSG_SIZE_CHECK(&imsg, &pf);
 			memcpy(&pf, imsg.data, sizeof(pf));
-			if (pf.pf_procid < 0 || pf.pf_procid > 5)
+			if (pf.pf_procid < 0 || pf.pf_procid > 4)
 				break;
-			if (pf.pf_instance < 0 || pf.pf_instance > 2)
+			if (pf.pf_instance != 0)
 				break;
 			printf("pf.pf_procid is %d\n", pf.pf_procid);
 			proc_accept(ps, imsg.fd, pf.pf_procid,

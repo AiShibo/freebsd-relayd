@@ -4,4 +4,4 @@ AFL_CUSTOM_INFO_PROGRAM_ARGV=-d
 AFL_CUSTOM_INFO_OUT=findings/default
 AFL_USE_ASAN=1
 # command line:
-'afl-fuzz' '-i' 'in' '-o' 'findings' '-g' '2048' '-m' 'none' '--' './relayd' '-d'
+'afl-fuzz' '-i' 'in' '-o' 'findings' '-g' '4000' '-m' 'none' '--' './relayd' '-d'

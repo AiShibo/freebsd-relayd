@@ -380,7 +380,7 @@ main(int argc, char *argv[])
 			break;
 		}
 
-		size = size > 16184? 16184 : size;
+		size = size % 8192;
 		
 		/* Ensure values are within valid ranges */
 		compartment = (compartment % 4) + 1;  // values 1, 2, 3, 4
@@ -684,23 +684,29 @@ parent_dispatch_relay(int fd, struct privsep_proc *p, struct imsg *imsg)
 
 	switch (imsg->hdr.type) {
 	case IMSG_BINDANY:
-		printf("relay BINDANY!!!");
-		printf("imsg.hdr.len is %d\n", imsg->hdr.len);
+		IMSG_SIZE_CHECK(imsg, &bnd);
+		printf("imsg->data os %lx\n", imsg->data);
 		bcopy(imsg->data, &bnd, sizeof(bnd));
+		printf("bcopy finishes!!!!!!!!!!!!!!!\n");
 		if (bnd.bnd_proc > env->sc_conf.prefork_relay)
 			fatalx("%s: invalid relay proc", __func__);
+		printf("memory access finishes!!!!!!!!!!!!!!!\n");
 		switch (bnd.bnd_proto) {
-		case IPPROTO_TCP:
-		case IPPROTO_UDP:
-			break;
-		default:
-			fatalx("%s: requested socket "
-			    "for invalid protocol", __func__);
-			/* NOTREACHED */
+			case IPPROTO_TCP:
+			case IPPROTO_UDP:
+				break;
+			default:
+				fatalx("%s: requested socket "
+						"for invalid protocol", __func__);
+				/* NOTREACHED */
 		}
 		s = bindany(&bnd);
+		printf("bindany access finishes!!!!!!!!!!!!!!!\n");
+		printf("bnd.bnd_proc is %d\n", bnd.bnd_proc);
+		bnd.bnd_proc = 0;
 		proc_compose_imsg(ps, PROC_RELAY, bnd.bnd_proc,
-		    IMSG_BINDANY, -1, s, &bnd.bnd_id, sizeof(bnd.bnd_id));
+				IMSG_BINDANY, -1, s, &bnd.bnd_id, sizeof(bnd.bnd_id));
+		printf("BINDANY finishes!!!!!!!!!!!!!!!\n");
 		break;
 	case IMSG_CFG_DONE:
 		printf("relay CFG_DONE!!!");
